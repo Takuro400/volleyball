@@ -18,6 +18,8 @@
     sans-serif;
   --font-mono: var(--font-jetbrains-mono), ui-monospace, "SFMono-Regular",
     Menlo, monospace;
+  --font-countdown: var(--font-orbitron), var(--font-space-grotesk),
+    sans-serif;
 }
 
 body {

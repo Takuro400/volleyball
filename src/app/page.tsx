@@ -52,7 +52,7 @@ function Countdown() {
         <div className="mt-4 grid grid-cols-4 gap-2">
           {units.map(({ key, label }) => (
             <div key={key} className="text-center">
-              <div className="font-display text-4xl font-bold tabular-nums sm:text-5xl">
+              <div className="font-countdown text-4xl font-black tabular-nums tracking-wide text-amber sm:text-5xl">
                 {remaining === "loading"
                   ? "--"
                   : String(remaining[key]).padStart(2, "0")}
