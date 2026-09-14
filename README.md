@@ -1,36 +1,73 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# バレーボール大会 運営アプリ
 
-## Getting Started
+九州工業大学1年生向けバレーボール大会（2026年11月27日(金) 11:00〜16:00、折尾スポーツセンター）の運営用 Web アプリです。
 
-First, run the development server:
+- **フレームワーク**: Next.js (App Router) + Tailwind CSS
+- **データベース**: Supabase（teams / matches / settings）
+- **デプロイ先**: Vercel
+
+## 機能
+
+| 画面 | 一般ユーザー | 運営（合言葉でロック解除） |
+| --- | --- | --- |
+| ホーム | カウントダウン・開催概要・エントリー数 | – |
+| エントリー | チーム登録（メンバー・学科・リーダー）、チーム一覧 | ブロックのランダム割当 |
+| 結果・順位 | ブロック別順位表（自動ソート）・試合結果 | 対戦カード追加・スコア入力 |
+| トーナメント | 初戦の組み合わせ自動生成（1位vs4位・2位vs3位） | 初戦の試合登録 |
+| 試合予定 | チーム選択で次の試合の時間・コート表示 | 予定の登録 |
+| ルール | ルール・注意事項の閲覧 | 編集・保存 |
+| 写真 | 「写真を見る」ボタン | Googleドライブリンクの設定 |
+
+運営者モードはヘッダー右上の「⚿ 運営」から合言葉を入力してロック解除します。
+シミュレーション用のダミーデータ投入・全データリセットは **開発環境限定** です（本番では表示されず、APIも拒否します）。
+
+## セットアップ
+
+### 1. Supabase プロジェクトを作成
+
+1. [supabase.com](https://supabase.com) で新規プロジェクトを作成
+2. ダッシュボードの **SQL Editor** で [`supabase/schema.sql`](supabase/schema.sql) の内容を貼り付けて実行
+3. **Project Settings → API** で以下の3つを控える
+   - Project URL
+   - `anon` public キー
+   - `service_role` キー（秘密。サーバーでのみ使用）
+
+### 2. 環境変数を設定
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+cp .env.local.example .env.local
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+`.env.local` を開いて値を設定します:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+| 変数 | 内容 |
+| --- | --- |
+| `NEXT_PUBLIC_SUPABASE_URL` | Project URL |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | anon public キー |
+| `SUPABASE_SERVICE_ROLE_KEY` | service_role キー |
+| `ADMIN_PASSPHRASE` | 運営者モードの合言葉（自由に決める） |
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### 3. ローカルで起動
 
-## Learn More
+```bash
+npm install
+npm run dev
+```
 
-To learn more about Next.js, take a look at the following resources:
+http://localhost:3000 で確認できます。
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Vercel へのデプロイ
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+1. このリポジトリを GitHub に push
+2. [vercel.com](https://vercel.com) で **New Project** → リポジトリをインポート
+3. **Environment Variables** に `.env.local` と同じ4つの変数を設定
+4. **Deploy**
 
-## Deploy on Vercel
+以降は `main` ブランチに push するたびに自動でデプロイされます。
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## 設計メモ
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- **読み取り**: 全データ（エントリー・結果・順位など）は共有データとして anon キーでクライアントから直接取得します。RLS で読み取りのみ許可しています。
+- **書き込み**: すべて Next.js の Route Handler（`src/app/api/`）経由で、サーバー側の service_role キーを使って行います。運営操作は httpOnly Cookie で保護しています。
+- **認証の差し替え**: 運営判定は [`src/lib/admin-auth.ts`](src/lib/admin-auth.ts) の `isAdminRequest()` に集約してあり、運営 UI もコンポーネント単位（`AdminPanel` / `AddMatchForm` / `ScheduleForm` / `RulesEditor` / `PhotoLinkEditor`）で分離しているので、将来 Supabase Auth に置き換える場合はこの1関数とログインモーダルを差し替えるだけで済みます。
+- **順位計算**: [`src/lib/standings.ts`](src/lib/standings.ts)。勝ち数 → 得失点差 → 総得点 → チーム名の順でソート。リーグ戦は各チーム2試合・15点先取（デュースなし）を想定しています。
