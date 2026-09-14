@@ -7,12 +7,12 @@ import {
   Card,
   EmptyState,
   ErrorText,
-  GhostButton,
   PrimaryButton,
   SectionTitle,
   SetupNotice,
   selectClass,
 } from "@/components/ui";
+import ScoreEditor from "@/components/ScoreEditor";
 import { postJson, useMatches, useTeams } from "@/lib/hooks";
 import { computeStandings, isFinished } from "@/lib/standings";
 import { BLOCKS, type Block, type Match, type Team } from "@/lib/types";
@@ -90,69 +90,6 @@ function StandingsTable({
   );
 }
 
-function ScoreEditor({
-  match,
-  onSaved,
-}: {
-  match: Match;
-  onSaved: () => void;
-}) {
-  const [scoreA, setScoreA] = useState(match.score_a?.toString() ?? "");
-  const [scoreB, setScoreB] = useState(match.score_b?.toString() ?? "");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const save = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      await postJson("/api/admin/matches", "PATCH", {
-        id: match.id,
-        scoreA: scoreA === "" ? null : Number(scoreA),
-        scoreB: scoreB === "" ? null : Number(scoreB),
-      });
-      onSaved();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "保存に失敗しました");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const scoreInput =
-    "w-14 rounded-md border border-line px-2 py-1.5 text-center font-mono text-sm outline-none focus:border-navy";
-
-  return (
-    <div className="mt-2 border-t border-dashed border-line pt-2">
-      <div className="flex items-center justify-center gap-2">
-        <input
-          type="number"
-          min={0}
-          max={99}
-          value={scoreA}
-          onChange={(e) => setScoreA(e.target.value)}
-          className={scoreInput}
-          aria-label="チームAのスコア"
-        />
-        <span className="font-mono text-xs text-muted">–</span>
-        <input
-          type="number"
-          min={0}
-          max={99}
-          value={scoreB}
-          onChange={(e) => setScoreB(e.target.value)}
-          className={scoreInput}
-          aria-label="チームBのスコア"
-        />
-        <GhostButton onClick={save} disabled={busy} className="px-3 py-1.5 text-xs">
-          {busy ? "…" : "保存"}
-        </GhostButton>
-      </div>
-      {error && <p className="mt-1 text-center text-xs text-red-700">{error}</p>}
-    </div>
-  );
-}
-
 function MatchCard({
   match,
   teamName,
@@ -212,7 +149,9 @@ function MatchCard({
       )}
       {admin && (
         <>
-          <ScoreEditor match={match} onSaved={onChanged} />
+          <div className="mt-2 border-t border-dashed border-line pt-2">
+            <ScoreEditor match={match} onSaved={onChanged} />
+          </div>
           <div className="mt-1.5 text-right">
             <button
               onClick={remove}
