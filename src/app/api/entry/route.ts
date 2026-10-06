@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getAdminSupabase } from "@/lib/supabase/admin";
-import { isDept, type Member } from "@/lib/types";
+import type { Member } from "@/lib/types";
 
 // チームエントリー（一般ユーザーも可）
 export async function POST(request: Request) {
@@ -35,13 +35,7 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
-    if (!isDept(m?.dept)) {
-      return NextResponse.json(
-        { error: "所属学科を選択してください" },
-        { status: 400 }
-      );
-    }
-    members.push({ name: memberName, dept: m.dept, isLeader: m?.isLeader === true });
+    members.push({ name: memberName, isLeader: m?.isLeader === true });
   }
   if (members.filter((m) => m.isLeader).length !== 1) {
     return NextResponse.json(

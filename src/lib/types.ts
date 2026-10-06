@@ -1,18 +1,10 @@
 export const BLOCKS = ["A", "B", "C", "D", "E"] as const;
 export type Block = (typeof BLOCKS)[number];
 
-export const DEPTS = [
-  "建設社会類",
-  "機械類",
-  "電気類",
-  "物質理工学類",
-  "総合類",
-] as const;
-export type Dept = (typeof DEPTS)[number];
-
+// 所属学科は他大学（西南女学院大学など）の参加を考慮して収集しない。
+// 大会後のアンケートで回答してもらう。
 export type Member = {
   name: string;
-  dept: Dept;
   isLeader: boolean;
 };
 
@@ -51,8 +43,4 @@ export const VENUE = "折尾スポーツセンター";
 
 export function isBlock(v: unknown): v is Block {
   return typeof v === "string" && (BLOCKS as readonly string[]).includes(v);
-}
-
-export function isDept(v: unknown): v is Dept {
-  return typeof v === "string" && (DEPTS as readonly string[]).includes(v);
 }

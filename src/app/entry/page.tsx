@@ -12,14 +12,13 @@ import {
   SectionTitle,
   SetupNotice,
   inputClass,
-  selectClass,
 } from "@/components/ui";
 import { postJson, useTeams } from "@/lib/hooks";
-import { BLOCKS, DEPTS, type Dept, type Team } from "@/lib/types";
+import { BLOCKS, type Team } from "@/lib/types";
 
-type MemberDraft = { name: string; dept: Dept | "" };
+type MemberDraft = { name: string };
 
-const emptyMember = (): MemberDraft => ({ name: "", dept: "" });
+const emptyMember = (): MemberDraft => ({ name: "" });
 
 function EntryForm({ onRegistered }: { onRegistered: () => void }) {
   const [teamName, setTeamName] = useState("");
@@ -51,7 +50,6 @@ function EntryForm({ onRegistered }: { onRegistered: () => void }) {
         name: teamName,
         members: members.map((m, i) => ({
           name: m.name,
-          dept: m.dept,
           isLeader: i === leaderIndex,
         })),
       });
@@ -88,52 +86,34 @@ function EntryForm({ onRegistered }: { onRegistered: () => void }) {
           </div>
           <div className="space-y-2">
             {members.map((m, i) => (
-              <div key={i} className="rounded-md border border-line p-3">
-                <div className="flex items-center gap-2">
+              <div key={i} className="flex items-center gap-2">
+                <input
+                  value={m.name}
+                  onChange={(e) => updateMember(i, { name: e.target.value })}
+                  placeholder={`メンバー${i + 1} の名前`}
+                  className={inputClass}
+                  maxLength={30}
+                />
+                <label className="flex shrink-0 items-center gap-1.5 text-sm">
                   <input
-                    value={m.name}
-                    onChange={(e) => updateMember(i, { name: e.target.value })}
-                    placeholder={`メンバー${i + 1} の名前`}
-                    className={inputClass}
-                    maxLength={30}
+                    type="radio"
+                    name="leader"
+                    checked={leaderIndex === i}
+                    onChange={() => setLeaderIndex(i)}
+                    className="accent-navy"
                   />
-                  {members.length > 1 && (
-                    <button
-                      type="button"
-                      onClick={() => removeMember(i)}
-                      aria-label="このメンバーを削除"
-                      className="shrink-0 rounded-md border border-line px-2.5 py-2 text-sm text-muted transition-colors hover:border-red-400 hover:text-red-600"
-                    >
-                      ×
-                    </button>
-                  )}
-                </div>
-                <div className="mt-2 flex items-center gap-3">
-                  <select
-                    value={m.dept}
-                    onChange={(e) =>
-                      updateMember(i, { dept: e.target.value as Dept })
-                    }
-                    className={selectClass}
+                  リーダー
+                </label>
+                {members.length > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => removeMember(i)}
+                    aria-label="このメンバーを削除"
+                    className="shrink-0 rounded-md border border-line px-2.5 py-2 text-sm text-muted transition-colors hover:border-red-400 hover:text-red-600"
                   >
-                    <option value="">所属学科を選択</option>
-                    {DEPTS.map((d) => (
-                      <option key={d} value={d}>
-                        {d}
-                      </option>
-                    ))}
-                  </select>
-                  <label className="flex shrink-0 items-center gap-1.5 text-sm">
-                    <input
-                      type="radio"
-                      name="leader"
-                      checked={leaderIndex === i}
-                      onChange={() => setLeaderIndex(i)}
-                      className="accent-navy"
-                    />
-                    リーダー
-                  </label>
-                </div>
+                    ×
+                  </button>
+                )}
               </div>
             ))}
           </div>

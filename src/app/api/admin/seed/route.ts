@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { isAdminRequest } from "@/lib/admin-auth";
 import { getAdminSupabase } from "@/lib/supabase/admin";
-import { DEPTS, type Member } from "@/lib/types";
+import type { Member } from "@/lib/types";
 
 // 開発環境限定: 動作確認用のダミーデータ投入 / 全データリセット
 function devGuard() {
@@ -28,7 +28,6 @@ export async function POST() {
   const rows = Array.from({ length: 20 }, (_, i) => {
     const members: Member[] = Array.from({ length: 4 }, (_, j) => ({
       name: `${FAMILY[(i + j * 3) % FAMILY.length]}${GIVEN[(i * 2 + j) % GIVEN.length]}`,
-      dept: DEPTS[(i + j) % DEPTS.length],
       isLeader: j === 0,
     }));
     return {
