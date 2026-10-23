@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { getSupabase } from "./supabase/client";
-import type { Match, Settings, Team } from "./types";
+import { DEFAULT_SCHEDULE, type Match, type Settings, type Team } from "./types";
 
 export type FetchState<T> = {
   data: T | null;
@@ -51,7 +51,11 @@ async function fetchTeams(): Promise<Team[]> {
     .select("*")
     .order("created_at", { ascending: true });
   if (error) throw new Error(error.message);
-  return (data ?? []) as Team[];
+  // 追加した列がまだ無いデータベースでも動くよう、欠けている値は null にそろえる
+  return ((data ?? []) as Team[]).map((t) => ({
+    ...t,
+    manual_rank: t.manual_rank ?? null,
+  }));
 }
 
 async function fetchMatches(): Promise<Match[]> {
@@ -61,7 +65,7 @@ async function fetchMatches(): Promise<Match[]> {
     .select("*")
     .order("created_at", { ascending: true });
   if (error) throw new Error(error.message);
-  return (data ?? []) as Match[];
+  return ((data ?? []) as Match[]).map((m) => ({ ...m, slot: m.slot ?? null }));
 }
 
 async function fetchSettings(): Promise<Settings> {
@@ -72,7 +76,15 @@ async function fetchSettings(): Promise<Settings> {
     .eq("id", 1)
     .maybeSingle();
   if (error) throw new Error(error.message);
-  return (data ?? { id: 1, rules: "", photo_link: "" }) as Settings;
+  const s = (data ?? { id: 1, rules: "", photo_link: "" }) as Partial<Settings>;
+  return {
+    id: 1,
+    rules: s.rules ?? "",
+    photo_link: s.photo_link ?? "",
+    schedule_start: s.schedule_start ?? DEFAULT_SCHEDULE.startTime,
+    slot_minutes: s.slot_minutes ?? DEFAULT_SCHEDULE.slotMinutes,
+    courts: s.courts ?? DEFAULT_SCHEDULE.courts,
+  };
 }
 
 export function useTeams() {
@@ -87,7 +99,17 @@ export function useSettings() {
   return useTable(fetchSettings);
 }
 
-// 運営APIの共通呼び出し。エラー時は日本語メッセージを throw する。
+// 運営APIの共通呼び出し。エラー時は日本語メッセージの ApiError を throw する。
+export class ApiError extends Error {
+  status: number;
+  data: Record<string, unknown>;
+  constructor(message: string, status: number, data: Record<string, unknown>) {
+    super(message);
+    this.status = status;
+    this.data = data;
+  }
+}
+
 export async function postJson<T = unknown>(
   url: string,
   method: string,
@@ -98,10 +120,12 @@ export async function postJson<T = unknown>(
     headers: { "Content-Type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
-  const json = await res.json().catch(() => ({}));
+  const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
   if (!res.ok) {
-    throw new Error(
-      (json as { error?: string }).error ?? "エラーが発生しました"
+    throw new ApiError(
+      typeof json.error === "string" ? json.error : "エラーが発生しました",
+      res.status,
+      json
     );
   }
   return json as T;

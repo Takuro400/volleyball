@@ -1,331 +1,378 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAdmin } from "@/components/AdminContext";
+import MatchEditor from "@/components/admin/MatchEditor";
+import TieBreaker from "@/components/admin/TieBreaker";
 import ScoreEditor from "@/components/ScoreEditor";
 import {
   AdminBadge,
   Card,
   EmptyState,
-  PrimaryButton,
+  GhostButton,
   SectionTitle,
   SetupNotice,
 } from "@/components/ui";
-import { postJson, useMatches, useTeams } from "@/lib/hooks";
-import { bracketReady, computeStandings, isFinished } from "@/lib/standings";
-import { BLOCKS, type Block, type Match, type Team } from "@/lib/types";
+import {
+  computeBracket,
+  ROUND_LABEL,
+  SLOT_LABEL,
+  type BracketPlan,
+  type SlotPlan,
+} from "@/lib/bracket";
+import { postJson, useMatches, useSettings, useTeams } from "@/lib/hooks";
+import { DEFAULT_SCHEDULE, type Match, type SlotId, type Team } from "@/lib/types";
 
-type Slot = {
-  seedLabel: string; // "1位" など。未確定スロットは ""
-  team: Team | null;
-  score: number | null;
-  isWinner: boolean;
+// ---- トーナメント表（1回戦 → 準々決勝 → 準決勝 → 決勝）の寸法 ----
+const BOX_W = 176;
+const ROW_H = 30;
+const BOX_H = ROW_H * 2;
+const META_H = 16;
+const PITCH = 92; // 準々決勝1行ぶんの縦の間隔
+const COL_GAP = 36;
+const TITLE_H = 24;
+
+const COLUMN: Record<SlotId, number> = {
+  "R1-1": 0,
+  "R1-2": 0,
+  QF1: 1,
+  QF2: 1,
+  QF3: 1,
+  QF4: 1,
+  SF1: 2,
+  SF2: 2,
+  F: 3,
 };
 
-// トーナメント表の1試合ぶんのボックス（上下2段）
-function MatchBox({ top, bottom }: { top: Slot; bottom: Slot }) {
-  const row = (slot: Slot, extraClass: string) => (
+// 縦位置（QF1行=0 を基準に PITCH 単位）。
+// 上から QF1, QF4, QF3, QF2。1回戦は勝ち上がる準々決勝と同じ高さに置く。
+const ROW: Record<SlotId, number> = {
+  "R1-2": 0,
+  QF1: 0,
+  QF4: 1,
+  QF3: 2,
+  QF2: 3,
+  "R1-1": 3,
+  SF1: 0.5,
+  SF2: 2.5,
+  F: 1.5,
+};
+
+// 勝者が進む先
+const EDGES: [SlotId, SlotId][] = [
+  ["R1-2", "QF1"],
+  ["R1-1", "QF2"],
+  ["QF1", "SF1"],
+  ["QF4", "SF1"],
+  ["QF3", "SF2"],
+  ["QF2", "SF2"],
+  ["SF1", "F"],
+  ["SF2", "F"],
+];
+
+const W = 4 * BOX_W + 3 * COL_GAP;
+const H = TITLE_H + 3 * PITCH + META_H + BOX_H + 4;
+
+const xOf = (slot: SlotId) => COLUMN[slot] * (BOX_W + COL_GAP);
+const yOf = (slot: SlotId) => TITLE_H + ROW[slot] * PITCH;
+const centerY = (slot: SlotId) => yOf(slot) + META_H + BOX_H / 2;
+
+const COLUMN_TITLES = ["R1", "QF", "SF", "F"] as const;
+
+function TeamRow({
+  team,
+  label,
+  seed,
+  score,
+  isWinner,
+  isLoser,
+  top,
+}: {
+  team: Team | null;
+  label: string;
+  seed: number | null;
+  score: number | null;
+  isWinner: boolean;
+  isLoser: boolean;
+  top: boolean;
+}) {
+  return (
     <div
-      className={`flex h-9 items-center gap-1.5 px-2.5 ${extraClass} ${
-        slot.isWinner ? "bg-amber/15" : "bg-white"
+      className={`flex items-center gap-1.5 px-2 ${top ? "border-b border-line" : ""} ${
+        isWinner ? "bg-amber/20" : "bg-white"
       }`}
+      style={{ height: ROW_H }}
     >
-      {slot.seedLabel && (
-        <span className="shrink-0 font-mono text-[10px] text-amber-deep">
-          {slot.seedLabel}
+      {seed !== null && (
+        <span className="w-5 shrink-0 font-mono text-[10px] text-amber-deep">
+          #{seed}
         </span>
       )}
       <span
         className={`min-w-0 flex-1 truncate text-[13px] ${
-          slot.isWinner ? "font-semibold text-navy" : slot.team ? "font-medium" : "text-muted"
+          team
+            ? isWinner
+              ? "font-semibold text-navy"
+              : isLoser
+                ? "font-medium text-muted"
+                : "font-medium"
+            : "text-[11px] text-muted"
         }`}
       >
-        {slot.team ? slot.team.name : "勝者未定"}
+        {team ? team.name : label}
       </span>
-      {slot.score !== null && (
+      {score !== null && (
         <span
           className={`shrink-0 font-mono text-[13px] tabular-nums ${
-            slot.isWinner ? "font-medium text-navy" : "text-muted"
+            isWinner ? "font-medium text-navy" : "text-muted"
           }`}
         >
-          {slot.score}
+          {score}
         </span>
       )}
     </div>
   );
+}
+
+function MatchBox({
+  plan,
+  seedOf,
+}: {
+  plan: SlotPlan;
+  seedOf: (t: Team | null) => number | null;
+}) {
+  const m = plan.match;
+  const finished = m !== null && m.score_a !== null && m.score_b !== null;
+  const sa = finished ? (m.score_a as number) : null;
+  const sb = finished ? (m.score_b as number) : null;
+  const aWin = plan.winner !== null && plan.winner.id === plan.teamA?.id;
+  const bWin = plan.winner !== null && plan.winner.id === plan.teamB?.id;
 
   return (
-    <div className="w-full overflow-hidden rounded-md border border-line">
-      {row(top, "border-b border-line")}
-      {row(bottom, "")}
+    <div
+      className="absolute"
+      style={{ left: xOf(plan.slot), top: yOf(plan.slot), width: BOX_W }}
+    >
+      <div
+        className="flex items-end justify-between px-0.5 font-mono text-[10px] text-muted"
+        style={{ height: META_H }}
+      >
+        <span className="truncate">{SLOT_LABEL[plan.slot]}</span>
+        {m && (m.time || m.court) && (
+          <span className="shrink-0 pl-1 text-navy">
+            {m.time ?? ""}
+            {m.court ? ` C${m.court}` : ""}
+          </span>
+        )}
+      </div>
+      <div className="overflow-hidden rounded-md border border-line">
+        <TeamRow
+          team={plan.teamA}
+          label={plan.labelA}
+          seed={seedOf(plan.teamA)}
+          score={sa}
+          isWinner={aWin}
+          isLoser={bWin}
+          top
+        />
+        <TeamRow
+          team={plan.teamB}
+          label={plan.labelB}
+          seed={seedOf(plan.teamB)}
+          score={sb}
+          isWinner={bWin}
+          isLoser={aWin}
+          top={false}
+        />
+      </div>
     </div>
   );
 }
 
-function slotsFor(
-  teamTop: Team | null,
-  teamBottom: Team | null,
-  labelTop: string,
-  labelBottom: string,
-  dbMatch: Match | undefined
-): { top: Slot; bottom: Slot } {
-  let scoreTop: number | null = null;
-  let scoreBottom: number | null = null;
-  if (dbMatch && isFinished(dbMatch)) {
-    // DB上の team_a/team_b の並びと表示上の上下は一致しない場合があるので対応付ける
-    const topIsA = teamTop !== null && dbMatch.team_a === teamTop.id;
-    scoreTop = topIsA ? dbMatch.score_a : dbMatch.score_b;
-    scoreBottom = topIsA ? dbMatch.score_b : dbMatch.score_a;
-  }
-  const finished = scoreTop !== null && scoreBottom !== null;
-  return {
-    top: {
-      seedLabel: labelTop,
-      team: teamTop,
-      score: scoreTop,
-      isWinner: finished && (scoreTop as number) > (scoreBottom as number),
-    },
-    bottom: {
-      seedLabel: labelBottom,
-      team: teamBottom,
-      score: scoreBottom,
-      isWinner: finished && (scoreBottom as number) > (scoreTop as number),
-    },
-  };
+function BracketDiagram({ plan }: { plan: BracketPlan }) {
+  const seedByTeam = new Map(plan.seeds.map((s) => [s.standing.team.id, s.seed]));
+  const seedOf = (t: Team | null) => (t ? (seedByTeam.get(t.id) ?? null) : null);
+  const winners = new Set(plan.slots.filter((s) => s.winner).map((s) => s.slot));
+
+  return (
+    <div className="overflow-x-auto rounded-lg border border-line bg-white p-3">
+      <div className="relative" style={{ width: W, height: H }}>
+        {COLUMN_TITLES.map((key, c) => (
+          <div
+            key={key}
+            className="absolute text-center font-mono text-[10px] tracking-widest text-muted"
+            style={{ left: c * (BOX_W + COL_GAP), top: 0, width: BOX_W }}
+          >
+            {ROUND_LABEL[key]}
+          </div>
+        ))}
+        <svg
+          width={W}
+          height={H}
+          className="pointer-events-none absolute left-0 top-0"
+          aria-hidden
+        >
+          {EDGES.map(([from, to]) => {
+            const x1 = xOf(from) + BOX_W;
+            const y1 = centerY(from);
+            const x2 = xOf(to);
+            const y2 = centerY(to);
+            const xm = x1 + COL_GAP / 2;
+            return (
+              <path
+                key={`${from}-${to}`}
+                d={`M${x1} ${y1} H${xm} V${y2} H${x2}`}
+                fill="none"
+                stroke={winners.has(from) ? "#16213e" : "#c9c6b6"}
+                strokeWidth={2}
+              />
+            );
+          })}
+        </svg>
+        {plan.slots.map((s) => (
+          <MatchBox key={s.slot} plan={s} seedOf={seedOf} />
+        ))}
+      </div>
+    </div>
+  );
 }
 
-function matchWinner(m: Match | undefined, teams: Team[]): Team | null {
-  if (!m || !isFinished(m) || m.score_a === m.score_b) return null;
-  const winnerId = (m.score_a as number) > (m.score_b as number) ? m.team_a : m.team_b;
-  return teams.find((t) => t.id === winnerId) ?? null;
+function SeedTable({ plan }: { plan: BracketPlan }) {
+  return (
+    <Card className="divide-y divide-line">
+      {plan.seeds.map((s) => (
+        <div key={s.seed} className="flex items-center gap-3 px-4 py-2.5 text-sm">
+          <span className="w-6 font-mono text-xs font-medium text-amber-deep">
+            #{s.seed}
+          </span>
+          <span className="min-w-0 flex-1 truncate font-medium">
+            {s.standing.team.name}
+          </span>
+          <span className="shrink-0 font-mono text-[11px] text-muted">
+            {s.block}組{s.blockRank}位 · {s.standing.wins}勝{s.standing.losses}敗 ·{" "}
+            {s.standing.diff > 0 ? `+${s.standing.diff}` : s.standing.diff}
+          </span>
+        </div>
+      ))}
+    </Card>
+  );
 }
 
-function BlockBracket({
-  block,
-  teams,
-  matches,
+function PendingPanel({
+  plan,
   admin,
   onChanged,
 }: {
-  block: Block;
-  teams: Team[];
-  matches: Match[];
+  plan: BracketPlan;
   admin: boolean;
   onChanged: () => void;
 }) {
-  const [busy, setBusy] = useState(false);
-  const standings = computeStandings(teams, matches, block);
-  const ready = bracketReady(standings);
-  const bracketMatches = matches.filter(
-    (m) => m.round === "bracket" && m.block === block
-  );
-
-  const findDbMatch = (a: Team | null, b: Team | null) =>
-    a && b
-      ? bracketMatches.find(
-          (m) =>
-            (m.team_a === a.id && m.team_b === b.id) ||
-            (m.team_a === b.id && m.team_b === a.id)
-        )
-      : undefined;
-
-  const seed = (i: number): Team | null => standings[i]?.team ?? null;
-
-  // 準決勝: 1位vs4位 / 2位vs3位
-  const sf1Db = ready ? findDbMatch(seed(0), seed(3)) : undefined;
-  const sf2Db = ready ? findDbMatch(seed(1), seed(2)) : undefined;
-  const sf1Winner = matchWinner(sf1Db, teams);
-  const sf2Winner = matchWinner(sf2Db, teams);
-  const finalDb = findDbMatch(sf1Winner, sf2Winner);
-  const champion = matchWinner(finalDb, teams);
-
-  const sf1 = slotsFor(seed(0), seed(3), "1位", "4位", sf1Db);
-  const sf2 = slotsFor(seed(1), seed(2), "2位", "3位", sf2Db);
-  const fin = slotsFor(sf1Winner, sf2Winner, "", "", finalDb);
-
-  const registerSemis = async () => {
-    if (
-      !window.confirm(
-        `ブロック ${block} の準決勝（1位vs4位・2位vs3位）を試合として登録しますか？`
-      )
-    )
-      return;
-    setBusy(true);
-    try {
-      await postJson("/api/admin/matches", "POST", {
-        round: "bracket",
-        block,
-        teamA: seed(0)!.id,
-        teamB: seed(3)!.id,
-      });
-      await postJson("/api/admin/matches", "POST", {
-        round: "bracket",
-        block,
-        teamA: seed(1)!.id,
-        teamB: seed(2)!.id,
-      });
-      onChanged();
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const registerFinal = async () => {
-    if (!sf1Winner || !sf2Winner) return;
-    if (
-      !window.confirm(
-        `ブロック ${block} の決勝（${sf1Winner.name} vs ${sf2Winner.name}）を登録しますか？`
-      )
-    )
-      return;
-    setBusy(true);
-    try {
-      await postJson("/api/admin/matches", "POST", {
-        round: "bracket",
-        block,
-        teamA: sf1Winner.id,
-        teamB: sf2Winner.id,
-      });
-      onChanged();
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  // 運営用: 登録済みのトーナメント試合にスコアを入れる行
-  const adminMatchRow = (label: string, m: Match | undefined) => {
-    if (!m) return null;
-    const nameOf = (id: string | null) =>
-      teams.find((t) => t.id === id)?.name ?? "不明";
-    return (
-      <div key={m.id} className="rounded-md border border-line bg-white p-2.5">
-        <p className="mb-1.5 text-center text-xs text-muted">
-          <span className="mr-1.5 font-mono text-amber-deep">{label}</span>
-          {nameOf(m.team_a)}（左） vs {nameOf(m.team_b)}（右）
+  const pct =
+    plan.leagueTotal === 0
+      ? 0
+      : Math.round((plan.leagueFinished / plan.leagueTotal) * 100);
+  return (
+    <div className="space-y-3">
+      <Card className="p-4">
+        <p className="text-sm font-medium">
+          リーグ戦が終わると、決勝トーナメントが自動で表示されます
         </p>
-        <ScoreEditor match={m} onSaved={onChanged} />
-        <div className="mt-1 text-right">
-          <button
-            onClick={async () => {
-              if (!window.confirm(`${label}の試合を削除しますか？`)) return;
-              await postJson("/api/admin/matches", "DELETE", { id: m.id });
-              onChanged();
-            }}
-            className="text-xs text-muted underline-offset-2 hover:text-red-600 hover:underline"
-          >
-            削除
-          </button>
+        <div className="mt-3 h-2 overflow-hidden rounded-full bg-paper">
+          <div className="h-full bg-amber" style={{ width: `${pct}%` }} />
         </div>
-      </div>
-    );
+        <p className="mt-2 font-mono text-xs text-muted">
+          リーグ戦 {plan.leagueFinished} / {plan.leagueTotal} 試合 終了
+          {plan.incompleteBlocks.length > 0 &&
+            ` · 未完了ブロック: ${plan.incompleteBlocks.join(", ")}`}
+        </p>
+      </Card>
+      {plan.ties.map((t) => (
+        <TieBreaker
+          key={`${t.title}-${t.group.standings.map((s) => s.team.id).join("-")}`}
+          title={t.title}
+          group={t.group}
+          admin={admin}
+          onSaved={onChanged}
+        />
+      ))}
+    </div>
+  );
+}
+
+function BracketAdmin({
+  plan,
+  matches,
+  teams,
+  courts,
+  onChanged,
+}: {
+  plan: BracketPlan;
+  matches: Match[];
+  teams: Team[];
+  courts: number;
+  onChanged: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const sync = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await postJson("/api/admin/bracket/sync", "POST");
+      onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "更新に失敗しました");
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
-    <Card>
-      <div className="flex items-center justify-between border-b border-line px-4 py-2.5">
-        <span className="font-mono text-xs font-medium text-amber-deep">
-          ブロック {block}
-        </span>
-        <span className="font-mono text-xs text-muted">
-          {standings.length} teams
-        </span>
+    <div className="space-y-3 rounded-lg border border-amber bg-amber/10 p-4">
+      <div className="flex items-center justify-between gap-2">
+        <p className="flex items-center gap-2 text-sm font-semibold">
+          <AdminBadge /> トーナメント運営
+        </p>
+        <GhostButton onClick={sync} disabled={busy} className="px-3 py-1.5 text-xs">
+          {busy ? "更新中…" : "組み合わせを更新"}
+        </GhostButton>
       </div>
-
-      {ready ? (
-        <div className="p-3">
-          {/* トーナメント表: 準決勝 → 連結線 → 決勝 */}
-          <div className="flex items-stretch">
-            {/* 準決勝の列 */}
-            <div className="flex min-w-0 flex-1 flex-col">
-              <div className="flex flex-1 items-center py-2">
-                <MatchBox top={sf1.top} bottom={sf1.bottom} />
-              </div>
-              <div className="flex flex-1 items-center py-2">
-                <MatchBox top={sf2.top} bottom={sf2.bottom} />
-              </div>
-            </div>
-
-            {/* 連結線: 各準決勝の中心から縦線で合流 */}
-            <div className="flex w-4 shrink-0 flex-col" aria-hidden>
-              <div className="flex flex-1 flex-col">
-                <div className="flex-1" />
-                <div className="flex-1 border-t-2 border-r-2 border-line" />
-              </div>
-              <div className="flex flex-1 flex-col">
-                <div className="flex-1 border-b-2 border-r-2 border-line" />
-                <div className="flex-1" />
-              </div>
-            </div>
-            {/* 合流点から決勝への横線 */}
-            <div className="flex w-4 shrink-0 flex-col" aria-hidden>
-              <div className="flex-1 border-b-2 border-line" />
-              <div className="flex-1" />
-            </div>
-
-            {/* 決勝の列 */}
-            <div className="flex min-w-0 flex-1 flex-col justify-center">
-              <p className="mb-1 text-center font-mono text-[10px] tracking-widest text-muted">
-                FINAL
-              </p>
-              <MatchBox top={fin.top} bottom={fin.bottom} />
-            </div>
-          </div>
-
-          {/* ラウンドラベル */}
-          <div className="mt-1 flex">
-            <p className="flex-1 text-center font-mono text-[10px] tracking-widest text-muted">
-              SEMI FINAL
-            </p>
-            <div className="w-8 shrink-0" />
-            <div className="flex-1" />
-          </div>
-
-          {champion && (
-            <div className="mt-3 flex items-center justify-center gap-2 rounded-md bg-navy px-3 py-2.5">
-              <span className="font-mono text-[10px] tracking-widest text-amber">
-                CHAMPION
-              </span>
-              <span className="text-sm font-semibold text-white">
-                {champion.name}
-              </span>
-            </div>
-          )}
-
-          {admin && (
-            <div className="mt-3 space-y-2 rounded-md border border-amber bg-amber/10 p-3">
-              <p className="flex items-center gap-2 text-xs font-semibold">
-                <AdminBadge /> トーナメント運営
-              </p>
-              {bracketMatches.length === 0 && (
-                <PrimaryButton onClick={registerSemis} disabled={busy} className="w-full">
-                  {busy ? "登録中…" : "準決勝を試合として登録"}
-                </PrimaryButton>
+      {error && <p className="text-sm text-red-700">{error}</p>}
+      <p className="text-xs text-muted">
+        試合の結果を保存すると、勝者が次の試合に自動で進みます。結果を直すと、その先の試合の結果は取り消されます。
+      </p>
+      {plan.slots.map((s) => (
+        <div key={s.slot} className="space-y-1.5">
+          <p className="font-mono text-[11px] text-amber-deep">
+            {SLOT_LABEL[s.slot]}
+            <span className="ml-2 text-muted">
+              {s.teamA?.name ?? "未定"} vs {s.teamB?.name ?? "未定"}
+            </span>
+          </p>
+          {s.match ? (
+            <>
+              {s.teamA && s.teamB && (
+                <div className="rounded-md border border-line bg-white p-2.5">
+                  <ScoreEditor match={s.match} onSaved={onChanged} />
+                </div>
               )}
-              {adminMatchRow("準決勝1", sf1Db)}
-              {adminMatchRow("準決勝2", sf2Db)}
-              {sf1Winner && sf2Winner && !finalDb && (
-                <PrimaryButton onClick={registerFinal} disabled={busy} className="w-full">
-                  {busy ? "登録中…" : "決勝を登録"}
-                </PrimaryButton>
-              )}
-              {adminMatchRow("決勝", finalDb)}
-            </div>
+              <MatchEditor
+                key={`${s.match.id}-${s.match.time}-${s.match.court}`}
+                match={s.match}
+                allMatches={matches}
+                teams={teams}
+                courts={courts}
+                editableTeams={false}
+                onChanged={onChanged}
+              />
+            </>
+          ) : (
+            <p className="text-xs text-muted">試合を作成中です。「組み合わせを更新」を押してください。</p>
           )}
         </div>
-      ) : (
-        <p className="px-4 py-5 text-center text-sm text-muted">
-          リーグ戦（各チーム2試合）が終了すると
-          <br />
-          トーナメント表が自動で表示されます
-          {standings.length > 0 && (
-            <span className="mt-1 block font-mono text-xs">
-              消化状況: {standings.filter((s) => s.played >= 2).length}/
-              {standings.length} チーム
-            </span>
-          )}
-        </p>
-      )}
-    </Card>
+      ))}
+    </div>
   );
 }
 
@@ -333,40 +380,94 @@ export default function BracketPage() {
   const { admin } = useAdmin();
   const teamsState = useTeams();
   const matchesState = useMatches();
+  const settingsState = useSettings();
+  const [syncError, setSyncError] = useState<string | null>(null);
 
-  if (teamsState.error === "unconfigured") return <SetupNotice />;
+  const teams = useMemo(() => teamsState.data ?? [], [teamsState.data]);
+  const matches = useMemo(() => matchesState.data ?? [], [matchesState.data]);
+  const plan = useMemo(() => computeBracket(teams, matches), [teams, matches]);
 
-  const teams = teamsState.data ?? [];
-  const matches = matchesState.data ?? [];
   const refreshAll = () => {
     teamsState.refresh();
     matchesState.refresh();
   };
 
+  // 運営が開いたとき、トーナメントの試合がまだ作られていなければ自動で作る（組み合わせごとに1回だけ）
+  const missing = plan.ready
+    ? plan.slots.filter((s) => !s.match).map((s) => s.slot).join(",")
+    : "";
+  const tried = useRef("");
+  useEffect(() => {
+    if (!admin || !missing || tried.current === missing) return;
+    tried.current = missing;
+    postJson("/api/admin/bracket/sync", "POST")
+      .then(() => {
+        teamsState.refresh();
+        matchesState.refresh();
+      })
+      .catch((e) => setSyncError(e instanceof Error ? e.message : "更新に失敗しました"));
+    // refresh 関数は毎回作り直されるため依存に含めない
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [admin, missing]);
+
+  if (teamsState.error === "unconfigured") return <SetupNotice />;
+
+  const loading = teamsState.loading || matchesState.loading;
+  const courts = settingsState.data?.courts ?? DEFAULT_SCHEDULE.courts;
+
   return (
     <div className="space-y-6">
       <section>
-        <SectionTitle>トーナメント</SectionTitle>
+        <SectionTitle>決勝トーナメント</SectionTitle>
         <p className="mb-3 text-sm text-muted">
-          リーグ戦の順位をもとに「1位 vs 4位」「2位 vs 3位」→ 決勝のトーナメント表を自動生成します。
+          各ブロック上位2チーム（計10チーム）による1本のトーナメントです。ブロック1位の5チームと2位の最上位1チームがシードで準々決勝から、残り4チームは1回戦から始まります。
         </p>
-        {teamsState.loading || matchesState.loading ? (
+        {loading ? (
           <EmptyState>読み込み中…</EmptyState>
+        ) : !plan.ready ? (
+          <PendingPanel plan={plan} admin={admin} onChanged={refreshAll} />
         ) : (
-          <div className="space-y-3">
-            {BLOCKS.map((b) => (
-              <BlockBracket
-                key={b}
-                block={b}
-                teams={teams}
-                matches={matches}
-                admin={admin}
-                onChanged={refreshAll}
-              />
-            ))}
+          <div className="space-y-4">
+            {plan.champion && (
+              <div className="flex items-center justify-center gap-2 rounded-lg bg-navy px-3 py-3">
+                <span className="font-mono text-[10px] tracking-widest text-amber">
+                  CHAMPION
+                </span>
+                <span className="text-base font-semibold text-white">
+                  {plan.champion.name}
+                </span>
+              </div>
+            )}
+            <BracketDiagram plan={plan} />
+            <p className="text-xs text-muted">
+              横にスクロールして全体を見られます。#の数字はシード順位です。
+            </p>
           </div>
         )}
       </section>
+
+      {!loading && plan.ready && (
+        <section>
+          <SectionTitle>シード順位</SectionTitle>
+          <p className="mb-2 text-xs text-muted">
+            各ブロック1位の5チームを勝ち数 → 得失点差 → 総得点で順位づけ（#1〜5）。2位の5チームも同じ基準で比べ、最上位が#6、残りが#7〜10です。
+          </p>
+          <SeedTable plan={plan} />
+        </section>
+      )}
+
+      {admin && !loading && plan.ready && (
+        <>
+          {syncError && <p className="text-sm text-red-700">{syncError}</p>}
+          <BracketAdmin
+            plan={plan}
+            matches={matches}
+            teams={teams}
+            courts={courts}
+            onChanged={refreshAll}
+          />
+        </>
+      )}
     </div>
   );
 }

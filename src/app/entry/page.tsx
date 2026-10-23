@@ -13,7 +13,7 @@ import {
   SetupNotice,
   inputClass,
 } from "@/components/ui";
-import { postJson, useTeams } from "@/lib/hooks";
+import { ApiError, postJson, useTeams } from "@/lib/hooks";
 import { BLOCKS, type Team } from "@/lib/types";
 
 type MemberDraft = { name: string };
@@ -222,7 +222,22 @@ function AdminPanel({ onChanged }: { onChanged: () => void }) {
             run(
               "assign",
               "全チームをシャッフルして A〜E ブロックへ割り当て直します。既存の割当は上書きされます。よろしいですか？",
-              () => postJson("/api/admin/assign-blocks", "POST"),
+              async () => {
+                try {
+                  await postJson("/api/admin/assign-blocks", "POST");
+                } catch (e) {
+                  // 試合が既にある場合は、消してよいか確認してからやり直す
+                  if (e instanceof ApiError && e.status === 409) {
+                    const ok = window.confirm(
+                      `既に${Number(e.data.existing ?? 0)}試合が登録されています。ブロックを割り当て直すと、全ての試合と結果が削除されます。続けますか？`
+                    );
+                    if (!ok) throw new Error("ブロックの割当を取りやめました");
+                    await postJson("/api/admin/assign-blocks", "POST", { force: true });
+                    return;
+                  }
+                  throw e;
+                }
+              },
               "ブロックを割り当てました"
             )
           }

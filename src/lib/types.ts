@@ -13,15 +13,31 @@ export type Team = {
   name: string;
   block: Block | null;
   members: Member[];
+  // 勝ち数・得失点差・総得点まで完全に同率のとき、運営が手動で決めた順位（小さいほど上位）
+  manual_rank: number | null;
   created_at: string;
 };
 
 export type Round = "league" | "bracket";
 
+// 決勝トーナメントの試合の位置（1回戦=R1、準々決勝=QF、準決勝=SF、決勝=F）
+export type SlotId =
+  | "R1-1"
+  | "R1-2"
+  | "QF1"
+  | "QF2"
+  | "QF3"
+  | "QF4"
+  | "SF1"
+  | "SF2"
+  | "F";
+
 export type Match = {
   id: string;
   round: Round;
   block: Block | null;
+  // トーナメントの試合のみ。リーグ戦は null
+  slot: SlotId | null;
   team_a: string | null;
   team_b: string | null;
   score_a: number | null;
@@ -35,7 +51,17 @@ export type Settings = {
   id: number;
   rules: string;
   photo_link: string;
+  schedule_start: string;
+  slot_minutes: number;
+  courts: number;
 };
+
+// リーグ戦スケジュール自動生成の初期値
+export const DEFAULT_SCHEDULE = {
+  startTime: "11:00",
+  slotMinutes: 12,
+  courts: 3,
+} as const;
 
 export const EVENT_DATE_ISO = "2026-11-27T11:00:00+09:00";
 export const EVENT_LABEL = "2026年11月27日(金) 11:00〜16:00";

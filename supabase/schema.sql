@@ -30,6 +30,15 @@ create table if not exists settings (
 
 insert into settings (id) values (1) on conflict (id) do nothing;
 
+-- リーグ戦の自動生成・決勝トーナメント用の追加列
+-- （既存のデータベースには supabase/migrations/2026-10-league-and-tournament.sql だけを実行すればOK）
+alter table teams add column if not exists manual_rank integer;
+alter table matches add column if not exists slot text
+  check (slot in ('R1-1', 'R1-2', 'QF1', 'QF2', 'QF3', 'QF4', 'SF1', 'SF2', 'F'));
+alter table settings add column if not exists schedule_start text not null default '11:00';
+alter table settings add column if not exists slot_minutes integer not null default 12;
+alter table settings add column if not exists courts integer not null default 3;
+
 -- RLS: 全員が閲覧できる共有データ。書き込みはサーバー（service role）経由のみ。
 alter table teams enable row level security;
 alter table matches enable row level security;

@@ -14,8 +14,24 @@ export function isFinished(m: Match): boolean {
   return m.score_a !== null && m.score_b !== null;
 }
 
+const manualRank = (t: Team) => t.manual_rank ?? Number.POSITIVE_INFINITY;
+
+// 順位の比較: 勝ち数 → 得失点差 → 総得点 → 運営の手動順位。
+// 手動順位も無いときは表示が安定するようチーム名で並べる（この場合は「同率」として扱う）。
+export function compareStandings(x: Standing, y: Standing): number {
+  if (y.wins !== x.wins) return y.wins - x.wins;
+  if (y.diff !== x.diff) return y.diff - x.diff;
+  if (y.pointsFor !== x.pointsFor) return y.pointsFor - x.pointsFor;
+  const rx = manualRank(x.team);
+  const ry = manualRank(y.team);
+  if (rx !== ry) return rx < ry ? -1 : 1;
+  return (
+    x.team.name.localeCompare(y.team.name, "ja") ||
+    x.team.id.localeCompare(y.team.id)
+  );
+}
+
 // ブロック内のリーグ戦結果から順位表を計算する。
-// 並び順: 勝ち数 → 得失点差 → 総得点 → チーム名
 export function computeStandings(
   teams: Team[],
   matches: Match[],
@@ -53,17 +69,45 @@ export function computeStandings(
 
   const list = [...rows.values()];
   for (const r of list) r.diff = r.pointsFor - r.pointsAgainst;
-  list.sort(
-    (x, y) =>
-      y.wins - x.wins ||
-      y.diff - x.diff ||
-      y.pointsFor - x.pointsFor ||
-      x.team.name.localeCompare(y.team.name, "ja")
-  );
+  list.sort(compareStandings);
   return list;
 }
 
-// トーナメント初戦を組める状態か: 4チーム以上いて、全チームがリーグ2試合を消化済み
-export function bracketReady(standings: Standing[]): boolean {
-  return standings.length >= 4 && standings.every((s) => s.played >= 2);
+// 総当たりが終わったブロックか（全チームが「他の全チーム」と対戦済み）
+export function blockComplete(standings: Standing[]): boolean {
+  return (
+    standings.length >= 2 &&
+    standings.every((s) => s.played >= standings.length - 1)
+  );
+}
+
+export type TieGroup = {
+  // 並べ替え済みの順位表のうち、完全に同率のチーム
+  standings: Standing[];
+  // 元の順位表での先頭の位置（0始まり）
+  startIndex: number;
+  // 全員に重複しない手動順位がついていれば決定済み
+  resolved: boolean;
+};
+
+const sameRecord = (a: Standing, b: Standing) =>
+  a.wins === b.wins && a.diff === b.diff && a.pointsFor === b.pointsFor;
+
+// 勝ち数・得失点差・総得点が全く同じチームのグループを探す（2チーム以上）
+export function findTieGroups(sorted: Standing[]): TieGroup[] {
+  const groups: TieGroup[] = [];
+  let i = 0;
+  while (i < sorted.length) {
+    let j = i + 1;
+    while (j < sorted.length && sameRecord(sorted[i], sorted[j])) j++;
+    if (j - i > 1) {
+      const members = sorted.slice(i, j);
+      const ranks = members.map((s) => s.team.manual_rank);
+      const resolved =
+        ranks.every((r) => r !== null) && new Set(ranks).size === ranks.length;
+      groups.push({ standings: members, startIndex: i, resolved });
+    }
+    i = j;
+  }
+  return groups;
 }

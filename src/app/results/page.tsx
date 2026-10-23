@@ -13,8 +13,14 @@ import {
   selectClass,
 } from "@/components/ui";
 import ScoreEditor from "@/components/ScoreEditor";
+import TieBreaker from "@/components/admin/TieBreaker";
 import { postJson, useMatches, useTeams } from "@/lib/hooks";
-import { computeStandings, isFinished } from "@/lib/standings";
+import {
+  blockComplete,
+  computeStandings,
+  findTieGroups,
+  isFinished,
+} from "@/lib/standings";
 import { BLOCKS, type Block, type Match, type Team } from "@/lib/types";
 
 function BlockTabs({
@@ -47,10 +53,14 @@ function StandingsTable({
   teams,
   matches,
   block,
+  admin,
+  onChanged,
 }: {
   teams: Team[];
   matches: Match[];
   block: Block;
+  admin: boolean;
+  onChanged: () => void;
 }) {
   const standings = computeStandings(teams, matches, block);
 
@@ -58,7 +68,18 @@ function StandingsTable({
     return <EmptyState>このブロックにはまだチームが割り当てられていません</EmptyState>;
   }
 
+  // 総当たりが終わった後、上位2チーム(決勝トーナメント進出)の判定に影響する同率だけ手動決定の対象にする
+  const ties = blockComplete(standings)
+    ? findTieGroups(standings).filter(
+        (g) =>
+          g.startIndex <= 1 &&
+          g.startIndex + g.standings.length - 1 >= 1 &&
+          !g.resolved
+      )
+    : [];
+
   return (
+    <div className="space-y-2">
     <Card className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
@@ -87,6 +108,16 @@ function StandingsTable({
         </tbody>
       </table>
     </Card>
+    {ties.map((g) => (
+      <TieBreaker
+        key={g.standings.map((s) => s.team.id).join("-")}
+        title={`ブロック${block}`}
+        group={g}
+        admin={admin}
+        onSaved={onChanged}
+      />
+    ))}
+    </div>
   );
 }
 
@@ -229,7 +260,7 @@ function AddMatchForm({
         {busy ? "登録中…" : "対戦カードを追加"}
       </PrimaryButton>
       <p className="mt-2 text-xs text-muted">
-        リーグ戦は1チームあたり2試合（例: 1-2, 3-4, 1-3, 2-4）／15点先取・デュースなし
+        通常は「試合予定」ページで総当たりを自動生成します。ここでは足りない試合を1つずつ追加できます。
       </p>
     </Card>
   );
@@ -248,9 +279,9 @@ export default function ResultsPage() {
     teams.find((t) => t.id === id)?.name ?? "不明なチーム";
 
   const blockTeams = teams.filter((t) => t.block === block);
-  const blockMatches = matches.filter(
-    (m) => m.round === "league" && m.block === block
-  );
+  const blockMatches = matches
+    .filter((m) => m.round === "league" && m.block === block)
+    .sort((a, b) => (a.time ?? "99:99").localeCompare(b.time ?? "99:99"));
 
   if (teamsState.error === "unconfigured") return <SetupNotice />;
 
@@ -268,10 +299,16 @@ export default function ResultsPage() {
         {teamsState.loading || matchesState.loading ? (
           <EmptyState>読み込み中…</EmptyState>
         ) : (
-          <StandingsTable teams={teams} matches={matches} block={block} />
+          <StandingsTable
+            teams={teams}
+            matches={matches}
+            block={block}
+            admin={admin}
+            onChanged={refreshAll}
+          />
         )}
         <p className="mt-2 text-xs text-muted">
-          勝ち数 → 得失点差 → 総得点の順で自動的に並べ替えられます。
+          勝ち数 → 得失点差 → 総得点の順で自動的に並べ替えられます。それでも同率のときは運営が順位を決定します。
         </p>
       </section>
 
