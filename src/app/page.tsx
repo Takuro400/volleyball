@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useMatches, useSettings, useTeams } from "@/lib/hooks";
+import { useIndividualCount, useMatches, useSettings, useTeams } from "@/lib/hooks";
 import {
   DEFAULT_SCHEDULE,
   EVENT_DATE_ISO,
   EVENT_LABEL,
+  INDIVIDUAL_LIMIT,
   PARTICIPANTS,
+  TEAM_ENTRY_LIMIT,
   VENUE,
 } from "@/lib/types";
 import LiveBoard from "@/components/LiveBoard";
@@ -78,18 +80,30 @@ function Countdown() {
 
 function EntryCount() {
   const { data: teams, error, loading } = useTeams();
+  const individuals = useIndividualCount();
 
   if (error === "unconfigured") return <SetupNotice />;
 
+  const entryTeams = (teams ?? []).filter((t) => t.kind === "entry").length;
+
   return (
     <Card className="flex items-center justify-between p-5">
-      <div>
+      <div className="space-y-2">
         <p className="text-sm text-muted">現在のエントリー</p>
-        <p className="mt-1 text-lg font-semibold">
+        <p className="text-lg font-semibold">
           <span className="font-display text-3xl font-bold text-navy">
-            {loading ? "–" : (teams?.length ?? 0)}
-          </span>{" "}
+            {loading ? "–" : entryTeams}
+          </span>
+          <span className="text-sm font-medium text-muted"> / {TEAM_ENTRY_LIMIT}</span>{" "}
           チームがエントリー中
+        </p>
+        <p className="text-sm font-medium">
+          当日チーム分けエントリー{" "}
+          <span className="font-display text-xl font-bold text-navy">
+            {individuals.count ?? "–"}
+          </span>
+          <span className="text-xs text-muted"> / {INDIVIDUAL_LIMIT}人</span>
+          <span className="ml-1 text-xs font-normal text-muted">（当日チームを編成）</span>
         </p>
       </div>
       <span className="inline-block h-10 w-1.5 bg-amber" aria-hidden />

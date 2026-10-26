@@ -13,8 +13,10 @@ import {
   SetupNotice,
   inputClass,
 } from "@/components/ui";
-import { ApiError, postJson, useTeams } from "@/lib/hooks";
-import { BLOCKS, type Team } from "@/lib/types";
+import IndividualEntryForm from "@/components/IndividualEntryForm";
+import IndividualsAdmin from "@/components/admin/IndividualsAdmin";
+import { ApiError, postJson, useIndividualCount, useTeams } from "@/lib/hooks";
+import { BLOCKS, INDIVIDUAL_LIMIT, TEAM_ENTRY_LIMIT, type Team } from "@/lib/types";
 
 type MemberDraft = { name: string };
 
@@ -189,7 +191,7 @@ function TeamList({
   }, [teams]);
 
   if (teams.length === 0) {
-    return <EmptyState>まだエントリーがありません</EmptyState>;
+    return <EmptyState>まだチームのエントリーがありません</EmptyState>;
   }
 
   return (
@@ -213,7 +215,14 @@ function TeamList({
                   key={t.id}
                   className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm font-medium"
                 >
-                  <span className="min-w-0 truncate">{t.name}</span>
+                  <span className="min-w-0 truncate">
+                    {t.name}
+                    {t.kind === "guerrilla" && (
+                      <span className="ml-2 font-mono text-[10px] font-normal text-muted">
+                        個人エントリーから編成
+                      </span>
+                    )}
+                  </span>
                   {admin && (
                     <button
                       type="button"
@@ -339,33 +348,112 @@ function AdminPanel({ onChanged }: { onChanged: () => void }) {
 export default function EntryPage() {
   const { admin } = useAdmin();
   const { data: teams, error, loading, refresh } = useTeams();
+  const individuals = useIndividualCount();
+  const [mode, setMode] = useState<"team" | "individual">("team");
 
   if (error === "unconfigured") return <SetupNotice />;
+
+  // 「チームで参加」と「当日チーム分けで参加」は、別々に数えて別々に表示する
+  const entryList = (teams ?? []).filter((t) => t.kind === "entry");
+  const guerrillaList = (teams ?? []).filter((t) => t.kind === "guerrilla");
+  const entryTeams = entryList.length;
+  const teamsFull = teams !== null && entryTeams >= TEAM_ENTRY_LIMIT;
+
+  const tabClass = (active: boolean) =>
+    `flex-1 rounded-md border px-2 py-2.5 text-sm font-medium transition-colors ${
+      active
+        ? "border-navy bg-navy text-white"
+        : "border-line bg-white text-muted hover:border-navy hover:text-ink"
+    }`;
 
   return (
     <div className="space-y-6">
       <section>
-        <SectionTitle>チームエントリー</SectionTitle>
-        <EntryForm onRegistered={refresh} />
+        <SectionTitle>エントリー</SectionTitle>
+        <div className="mb-2 flex gap-2">
+          <button type="button" onClick={() => setMode("team")} className={tabClass(mode === "team")}>
+            チームで参加
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode("individual")}
+            className={tabClass(mode === "individual")}
+          >
+            当日チーム分けで参加
+          </button>
+        </div>
+        <p className="mb-3 text-xs text-muted">
+          {mode === "team"
+            ? "チームを作って、メンバー全員を登録します（最大15チーム）。"
+            : "1人〜3人でエントリーします。当日、運営がランダムにチームを編成します（最大30人）。"}
+        </p>
+        {mode === "team" ? (
+          teamsFull ? (
+            <Card className="p-4">
+              <p className="text-sm font-medium">
+                チームでのエントリーは{TEAM_ENTRY_LIMIT}チームで締め切りました。
+              </p>
+              <p className="mt-1 text-sm text-muted">
+                「当日チーム分けで参加」からエントリーできます（当日、運営がチームを編成します）。
+              </p>
+            </Card>
+          ) : (
+            <>
+              <p className="mb-2 font-mono text-xs text-muted">
+                チームエントリー {loading ? "–" : entryTeams} / {TEAM_ENTRY_LIMIT}チーム
+              </p>
+              <EntryForm onRegistered={refresh} />
+            </>
+          )
+        ) : (
+          <IndividualEntryForm count={individuals.count} onRegistered={individuals.refresh} />
+        )}
       </section>
 
       {admin && <AdminPanel onChanged={refresh} />}
+      {admin && <IndividualsAdmin teams={teams ?? []} onChanged={refresh} />}
 
+      {/* ① チームで参加した分 */}
       <section>
         <SectionTitle>
-          登録済みチーム
-          {teams ? (
-            <span className="font-mono text-sm text-muted">
-              ({teams.length})
-            </span>
-          ) : null}
+          チームエントリー
+          <span className="font-mono text-sm text-muted">
+            ({loading ? "–" : entryTeams}/{TEAM_ENTRY_LIMIT})
+          </span>
         </SectionTitle>
         {loading ? (
           <EmptyState>読み込み中…</EmptyState>
         ) : error ? (
           <ErrorText>{error}</ErrorText>
         ) : (
-          <TeamList teams={teams ?? []} admin={admin} onChanged={refresh} />
+          <TeamList teams={entryList} admin={admin} onChanged={refresh} />
+        )}
+      </section>
+
+      {/* ② 当日チーム分けで参加する分（個人・少人数）。名前は公開せず、人数だけ表示 */}
+      <section>
+        <SectionTitle>
+          当日チーム分けエントリー
+          <span className="font-mono text-sm text-muted">
+            ({individuals.count ?? "–"}/{INDIVIDUAL_LIMIT}人)
+          </span>
+        </SectionTitle>
+        <Card className="p-4">
+          <p className="text-sm">
+            <span className="font-display text-2xl font-bold text-navy">
+              {individuals.count ?? "–"}
+            </span>
+            <span className="text-xs text-muted"> / {INDIVIDUAL_LIMIT}人</span>{" "}
+            がエントリー中
+          </p>
+          <p className="mt-1 text-xs text-muted">
+            当日、運営がランダムにチームを編成して発表します。個人情報は公開されません。
+          </p>
+        </Card>
+        {guerrillaList.length > 0 && (
+          <div className="mt-3">
+            <TeamList teams={guerrillaList} admin={admin} onChanged={refresh} />
+          </div>
         )}
       </section>
     </div>

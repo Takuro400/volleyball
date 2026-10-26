@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getAdminSupabase } from "@/lib/supabase/admin";
-import type { Member } from "@/lib/types";
+import { TEAM_ENTRY_LIMIT, type Member } from "@/lib/types";
 
 // チームエントリー（一般ユーザーも可）
 export async function POST(request: Request) {
@@ -41,6 +41,22 @@ export async function POST(request: Request) {
     return NextResponse.json(
       { error: "リーダーを1人選択してください" },
       { status: 400 }
+    );
+  }
+
+  // チームでのエントリーは15チームまで（残り5チームは、個人・少人数エントリーから当日編成する）。
+  // 追加列(kind)がまだ無いデータベースでは確認に失敗するので、その場合は上限チェックを行わない。
+  const { count: entryCount, error: countError } = await sb
+    .from("teams")
+    .select("id", { count: "exact", head: true })
+    .eq("kind", "entry");
+  if (!countError && (entryCount ?? 0) >= TEAM_ENTRY_LIMIT) {
+    return NextResponse.json(
+      {
+        error: `チームでのエントリーは${TEAM_ENTRY_LIMIT}チームで締め切りました。「当日チーム分けで参加」からエントリーしてください`,
+        full: true,
+      },
+      { status: 409 }
     );
   }
 

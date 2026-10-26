@@ -89,6 +89,7 @@ async function fetchTeams(): Promise<Team[]> {
   return ((data ?? []) as Team[]).map((t) => ({
     ...t,
     manual_rank: t.manual_rank ?? null,
+    kind: t.kind ?? "entry",
   }));
 }
 
@@ -132,6 +133,35 @@ export function useMatches() {
 
 export function useSettings() {
   return useTable(fetchSettings);
+}
+
+// 個人エントリーの人数（名前などは公開しないので、専用のAPIから人数だけ取る）
+export function useIndividualCount() {
+  const [count, setCount] = useState<number | null>(null);
+  const refresh = useCallback(async () => {
+    try {
+      const res = await fetch("/api/individual/count", { cache: "no-store" });
+      if (!res.ok) return;
+      const json = (await res.json()) as { count?: number };
+      if (typeof json.count === "number") setCount(json.count);
+    } catch {
+      /* 通信エラーのときは前回の表示のまま */
+    }
+  }, []);
+
+  useEffect(() => {
+    // 初回の取得は非同期コールバックの中で setState される
+    const first = setTimeout(refresh, 0);
+    const id = setInterval(() => {
+      if (document.visibilityState === "visible") refresh();
+    }, 60_000);
+    return () => {
+      clearTimeout(first);
+      clearInterval(id);
+    };
+  }, [refresh]);
+
+  return { count, refresh };
 }
 
 // 運営APIの共通呼び出し。エラー時は日本語メッセージの ApiError を throw する。

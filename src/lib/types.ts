@@ -15,6 +15,44 @@ export type Team = {
   members: Member[];
   // 勝ち数・得失点差・総得点まで完全に同率のとき、運営が手動で決めた順位（小さいほど上位）
   manual_rank: number | null;
+  // entry=チームでのエントリー / guerrilla=個人エントリーから当日に編成したチーム
+  kind: TeamKind;
+  created_at: string;
+};
+
+export type TeamKind = "entry" | "guerrilla";
+
+// 参加枠: 20チーム = チームエントリー15 + 個人エントリーから編成する5（6人×5=30人）
+export const TEAM_ENTRY_LIMIT = 15;
+export const INDIVIDUAL_LIMIT = 30;
+export const GUERRILLA_TEAM_SIZE = 6;
+
+export type Gender = "female" | "male" | "none";
+export const GENDER_LABEL: Record<Gender, string> = {
+  female: "女性",
+  male: "男性",
+  none: "回答しない",
+};
+export function isGender(v: unknown): v is Gender {
+  return v === "female" || v === "male" || v === "none";
+}
+
+// 1回に一緒にエントリーできる人数（1人〜最大3人）。大きな組が多いと6人ずつに分けにくくなるため3人まで
+export const MAX_GROUP_SIZE = 3;
+// 当日編成するチームの人数の目安（コート上6人／登録6〜8人）
+export const GUERRILLA_MIN_SIZE = 6;
+export const GUERRILLA_MAX_SIZE = 8;
+
+// 個人・少人数エントリー（名前などは運営だけが見られる。一般には人数だけ公開）
+export type Individual = {
+  id: string;
+  name: string;
+  gender: Gender;
+  experienced: boolean;
+  // 一緒にエントリーした人は同じ group_id。チーム分けでは必ず同じチームにする
+  group_id: string;
+  // チームに編成済みならそのチームのID
+  team_id: string | null;
   created_at: string;
 };
 

@@ -39,6 +39,23 @@ alter table settings add column if not exists schedule_start text not null defau
 alter table settings add column if not exists slot_minutes integer not null default 15;
 alter table settings add column if not exists courts integer not null default 3;
 
+-- 個人・少人数エントリーと当日のチーム分け用の追加
+-- （既存のデータベースには supabase/migrations/2026-10-individual-entries.sql だけを実行すればOK）
+alter table teams add column if not exists kind text not null default 'entry'
+  check (kind in ('entry', 'guerrilla'));
+
+create table if not exists individuals (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  gender text not null default 'none' check (gender in ('female', 'male', 'none')),
+  experienced boolean not null default false,
+  group_id uuid not null default gen_random_uuid(),
+  team_id uuid references teams (id) on delete set null,
+  created_at timestamptz not null default now()
+);
+-- 個人の名前などは公開しない（閲覧ポリシーを作らない。読み書きはサーバーのみ）
+alter table individuals enable row level security;
+
 -- RLS: 全員が閲覧できる共有データ。書き込みはサーバー（service role）経由のみ。
 alter table teams enable row level security;
 alter table matches enable row level security;
