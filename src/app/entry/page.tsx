@@ -142,7 +142,42 @@ function EntryForm({ onRegistered }: { onRegistered: () => void }) {
   );
 }
 
-function TeamList({ teams }: { teams: Team[] }) {
+function TeamList({
+  teams,
+  admin,
+  onChanged,
+}: {
+  teams: Team[];
+  admin: boolean;
+  onChanged: () => void;
+}) {
+  const [error, setError] = useState<string | null>(null);
+
+  // 運営用: チームを削除する。試合が既にあるときは、結果も消えることを確認する。
+  const remove = async (team: Team) => {
+    if (!window.confirm(`「${team.name}」を削除しますか？`)) return;
+    setError(null);
+    try {
+      await postJson("/api/admin/teams", "DELETE", { id: team.id });
+      onChanged();
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 409) {
+        const ok = window.confirm(
+          `「${team.name}」には試合が${Number(e.data.matches ?? 0)}件あります。削除すると、その試合と結果も消えます。本当に削除しますか？`
+        );
+        if (!ok) return;
+        try {
+          await postJson("/api/admin/teams", "DELETE", { id: team.id, force: true });
+          onChanged();
+        } catch (e2) {
+          setError(e2 instanceof Error ? e2.message : "削除に失敗しました");
+        }
+        return;
+      }
+      setError(e instanceof Error ? e.message : "削除に失敗しました");
+    }
+  };
+
   const groups = useMemo(() => {
     const byBlock = new Map<string, Team[]>();
     for (const b of BLOCKS) byBlock.set(b, []);
@@ -159,6 +194,7 @@ function TeamList({ teams }: { teams: Team[] }) {
 
   return (
     <div className="space-y-3">
+      <ErrorText>{error}</ErrorText>
       {[...groups.entries()]
         .filter(([, list]) => list.length > 0)
         .map(([block, list]) => (
@@ -173,8 +209,21 @@ function TeamList({ teams }: { teams: Team[] }) {
             </div>
             <ul className="divide-y divide-line">
               {list.map((t) => (
-                <li key={t.id} className="px-4 py-2.5 text-sm font-medium">
-                  {t.name}
+                <li
+                  key={t.id}
+                  className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm font-medium"
+                >
+                  <span className="min-w-0 truncate">{t.name}</span>
+                  {admin && (
+                    <button
+                      type="button"
+                      onClick={() => remove(t)}
+                      aria-label={`${t.name}を削除`}
+                      className="shrink-0 rounded-md border border-line px-2 py-0.5 text-xs font-normal text-muted transition-colors hover:border-red-400 hover:text-red-600"
+                    >
+                      削除
+                    </button>
+                  )}
                 </li>
               ))}
             </ul>
@@ -316,7 +365,7 @@ export default function EntryPage() {
         ) : error ? (
           <ErrorText>{error}</ErrorText>
         ) : (
-          <TeamList teams={teams ?? []} />
+          <TeamList teams={teams ?? []} admin={admin} onChanged={refresh} />
         )}
       </section>
     </div>
