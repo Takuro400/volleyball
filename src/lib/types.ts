@@ -58,13 +58,14 @@ export type Settings = {
 
 // リーグ戦スケジュール自動生成の初期値
 export const DEFAULT_SCHEDULE = {
-  startTime: "11:00",
-  slotMinutes: 12,
+  startTime: "10:45",
+  slotMinutes: 15,
   courts: 3,
 } as const;
 
-export const EVENT_DATE_ISO = "2026-11-27T11:00:00+09:00";
-export const EVENT_LABEL = "2026年11月27日(金) 11:00〜16:00";
+export const EVENT_DATE_ISO = "2026-11-27T10:00:00+09:00";
+export const EVENT_LABEL = "2026年11月27日(金) 10:00〜16:00";
+export const PARTICIPANTS = "九州工業大学・西南女学院大学の1年生";
 export const VENUE = "折尾スポーツセンター";
 
 export function isBlock(v: unknown): v is Block {

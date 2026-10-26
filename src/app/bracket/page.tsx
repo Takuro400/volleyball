@@ -20,7 +20,8 @@ import {
   type BracketPlan,
   type SlotPlan,
 } from "@/lib/bracket";
-import { postJson, useMatches, useSettings, useTeams } from "@/lib/hooks";
+import { postJson, useMatches, useNow, useSettings, useTeams } from "@/lib/hooks";
+import { computeLive, isEventDay, jstParts } from "@/lib/live";
 import { DEFAULT_SCHEDULE, type Match, type SlotId, type Team } from "@/lib/types";
 
 // ---- トーナメント表（1回戦 → 準々決勝 → 準決勝 → 決勝）の寸法 ----
@@ -137,9 +138,11 @@ function TeamRow({
 function MatchBox({
   plan,
   seedOf,
+  live,
 }: {
   plan: SlotPlan;
   seedOf: (t: Team | null) => number | null;
+  live: boolean;
 }) {
   const m = plan.match;
   const finished = m !== null && m.score_a !== null && m.score_b !== null;
@@ -158,14 +161,25 @@ function MatchBox({
         style={{ height: META_H }}
       >
         <span className="truncate">{SLOT_LABEL[plan.slot]}</span>
-        {m && (m.time || m.court) && (
-          <span className="shrink-0 pl-1 text-navy">
-            {m.time ?? ""}
-            {m.court ? ` C${m.court}` : ""}
+        {live ? (
+          <span className="shrink-0 pl-1 font-medium text-amber-deep">
+            ● LIVE{m?.court ? ` C${m.court}` : ""}
           </span>
+        ) : (
+          m &&
+          (m.time || m.court) && (
+            <span className="shrink-0 pl-1 text-navy">
+              {m.time ?? ""}
+              {m.court ? ` C${m.court}` : ""}
+            </span>
+          )
         )}
       </div>
-      <div className="overflow-hidden rounded-md border border-line">
+      <div
+        className={`overflow-hidden rounded-md border ${
+          live ? "border-amber ring-2 ring-amber" : "border-line"
+        }`}
+      >
         <TeamRow
           team={plan.teamA}
           label={plan.labelA}
@@ -189,12 +203,21 @@ function MatchBox({
   );
 }
 
-function BracketDiagram({ plan }: { plan: BracketPlan }) {
+function BracketDiagram({
+  plan,
+  liveIds,
+}: {
+  plan: BracketPlan;
+  liveIds: Set<string>;
+}) {
   const seedByTeam = new Map(plan.seeds.map((s) => [s.standing.team.id, s.seed]));
   const seedOf = (t: Team | null) => (t ? (seedByTeam.get(t.id) ?? null) : null);
   const winners = new Set(plan.slots.filter((s) => s.winner).map((s) => s.slot));
 
+  // パソコンでは本文の幅(48rem)を超えて広げ、表の全体が横スクロールなしで見えるようにする。
+  // スマホでは画面幅に収めて、表の中だけ横スクロールする。
   return (
+    <div className="relative left-1/2 w-[min(56rem,calc(100vw-2rem))] -translate-x-1/2">
     <div className="overflow-x-auto rounded-lg border border-line bg-white p-3">
       <div className="relative" style={{ width: W, height: H }}>
         {COLUMN_TITLES.map((key, c) => (
@@ -230,9 +253,15 @@ function BracketDiagram({ plan }: { plan: BracketPlan }) {
           })}
         </svg>
         {plan.slots.map((s) => (
-          <MatchBox key={s.slot} plan={s} seedOf={seedOf} />
+          <MatchBox
+            key={s.slot}
+            plan={s}
+            seedOf={seedOf}
+            live={s.match !== null && liveIds.has(s.match.id)}
+          />
         ))}
       </div>
+    </div>
     </div>
   );
 }
@@ -387,6 +416,15 @@ export default function BracketPage() {
   const matches = useMemo(() => matchesState.data ?? [], [matchesState.data]);
   const plan = useMemo(() => computeBracket(teams, matches), [teams, matches]);
 
+  // 大会当日、いま進行中のトーナメントの試合を強調表示する
+  const now = useNow(10_000);
+  const slotMinutes = settingsState.data?.slot_minutes ?? DEFAULT_SCHEDULE.slotMinutes;
+  const liveIds = useMemo(() => {
+    if (now === null || !isEventDay(now)) return new Set<string>();
+    const live = computeLive(matches, jstParts(now).minutes, slotMinutes);
+    return new Set(live.playing.map((x) => x.match.id));
+  }, [now, matches, slotMinutes]);
+
   const refreshAll = () => {
     teamsState.refresh();
     matchesState.refresh();
@@ -438,7 +476,7 @@ export default function BracketPage() {
                 </span>
               </div>
             )}
-            <BracketDiagram plan={plan} />
+            <BracketDiagram plan={plan} liveIds={liveIds} />
             <p className="text-xs text-muted">
               横にスクロールして全体を見られます。#の数字はシード順位です。
             </p>

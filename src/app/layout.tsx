@@ -31,7 +31,7 @@ const orbitron = Orbitron({
 export const metadata: Metadata = {
   title: "バレーボール大会",
   description:
-    "九州工業大学1年生向けバレーボール大会（2026/11/27・折尾スポーツセンター）の運営アプリ",
+    "九州工業大学・西南女学院大学の1年生向けバレーボール大会（2026/11/27・折尾スポーツセンター）の運営アプリ",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

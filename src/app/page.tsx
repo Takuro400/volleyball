@@ -1,8 +1,16 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useTeams } from "@/lib/hooks";
-import { EVENT_DATE_ISO, EVENT_LABEL, VENUE } from "@/lib/types";
+import { useMatches, useSettings, useTeams } from "@/lib/hooks";
+import {
+  DEFAULT_SCHEDULE,
+  EVENT_DATE_ISO,
+  EVENT_LABEL,
+  PARTICIPANTS,
+  VENUE,
+} from "@/lib/types";
+import LiveBoard from "@/components/LiveBoard";
+import { TIMETABLE } from "@/lib/timetable";
 import { Card, SectionTitle, SetupNotice } from "@/components/ui";
 
 type Remaining = { days: number; hours: number; minutes: number; seconds: number };
@@ -89,10 +97,25 @@ function EntryCount() {
   );
 }
 
+// 大会当日だけ、いま行われている試合を表示する
+function HomeLive() {
+  const teams = useTeams();
+  const matches = useMatches();
+  const settings = useSettings();
+  return (
+    <LiveBoard
+      matches={matches.data ?? []}
+      teams={teams.data ?? []}
+      slotMinutes={settings.data?.slot_minutes ?? DEFAULT_SCHEDULE.slotMinutes}
+    />
+  );
+}
+
 export default function HomePage() {
   return (
     <div className="space-y-6">
       <Countdown />
+      <HomeLive />
 
       <section>
         <SectionTitle>開催概要</SectionTitle>
@@ -107,8 +130,38 @@ export default function HomePage() {
           </div>
           <div className="flex items-baseline gap-4 p-4">
             <span className="w-14 shrink-0 font-mono text-xs text-muted">対象</span>
-            <span className="text-sm font-medium">九州工業大学 1年生</span>
+            <span className="text-sm font-medium">{PARTICIPANTS}</span>
           </div>
+        </Card>
+      </section>
+
+      <section>
+        <SectionTitle>タイムスケジュール</SectionTitle>
+        <Card className="divide-y divide-line">
+          {TIMETABLE.map((item) => (
+            <div
+              key={item.start}
+              className={`flex gap-4 px-4 py-3 ${item.kind === "break" ? "bg-paper" : ""}`}
+            >
+              <span className="w-[5.75rem] shrink-0 pt-0.5 font-mono text-xs text-navy">
+                {item.start}–{item.end}
+              </span>
+              <div className="min-w-0">
+                <p
+                  className={`text-sm ${
+                    item.kind === "match"
+                      ? "font-semibold"
+                      : item.kind === "break"
+                        ? "text-muted"
+                        : "font-medium"
+                  }`}
+                >
+                  {item.title}
+                </p>
+                {item.note && <p className="mt-0.5 text-xs text-muted">{item.note}</p>}
+              </div>
+            </div>
+          ))}
         </Card>
       </section>
 

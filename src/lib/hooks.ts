@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { getSupabase } from "./supabase/client";
 import { DEFAULT_SCHEDULE, type Match, type Settings, type Team } from "./types";
 
@@ -12,10 +12,12 @@ export type FetchState<T> = {
   refresh: () => Promise<void>;
 };
 
-function useTable<T>(fetcher: () => Promise<T>): FetchState<T> {
+// pollMs を指定すると、画面が表示されている間その間隔で自動的に最新データを取り直す。
+function useTable<T>(fetcher: () => Promise<T>, pollMs?: number): FetchState<T> {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const loaded = useRef(false);
 
   const refresh = useCallback(async () => {
     if (!getSupabase()) {
@@ -25,9 +27,13 @@ function useTable<T>(fetcher: () => Promise<T>): FetchState<T> {
     }
     try {
       setData(await fetcher());
+      loaded.current = true;
       setError(null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "データの取得に失敗しました");
+      // 一度表示できていれば、通信が一瞬途切れても画面はそのまま(次の更新で直る)
+      if (!loaded.current) {
+        setError(e instanceof Error ? e.message : "データの取得に失敗しました");
+      }
     } finally {
       setLoading(false);
     }
@@ -35,13 +41,41 @@ function useTable<T>(fetcher: () => Promise<T>): FetchState<T> {
 
   useEffect(() => {
     refresh();
-    // 大会当日はタブ切り替えで戻ってきたときに最新化する
+    // タブ切り替えやアプリから戻ってきたときに最新化する
     const onFocus = () => refresh();
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
   }, [refresh]);
 
+  useEffect(() => {
+    if (!pollMs) return;
+    const id = setInterval(() => {
+      if (document.visibilityState === "visible") refresh();
+    }, pollMs);
+    return () => clearInterval(id);
+  }, [pollMs, refresh]);
+
   return { data, error, loading, refresh };
+}
+
+// 現在時刻(ミリ秒)。最初の描画では null（サーバーとの表示のずれを防ぐため）。
+// 確認用に、URL に ?now=2026-11-27T11:15:00%2B09:00 を付けると、その時刻から進む。
+export function useNow(intervalMs = 15000): number | null {
+  const [now, setNow] = useState<number | null>(null);
+  useEffect(() => {
+    const override = Date.parse(
+      new URLSearchParams(window.location.search).get("now") ?? ""
+    );
+    const offset = Number.isNaN(override) ? 0 : override - Date.now();
+    const tick = () => setNow(Date.now() + offset);
+    const first = setTimeout(tick, 0);
+    const id = setInterval(tick, intervalMs);
+    return () => {
+      clearTimeout(first);
+      clearInterval(id);
+    };
+  }, [intervalMs]);
+  return now;
 }
 
 async function fetchTeams(): Promise<Team[]> {
@@ -87,12 +121,13 @@ async function fetchSettings(): Promise<Settings> {
   };
 }
 
+// 試合の結果はリアルタイムに近い間隔(20秒)で、チームの変更はゆっくり(60秒)取り直す
 export function useTeams() {
-  return useTable(fetchTeams);
+  return useTable(fetchTeams, 60_000);
 }
 
 export function useMatches() {
-  return useTable(fetchMatches);
+  return useTable(fetchMatches, 20_000);
 }
 
 export function useSettings() {

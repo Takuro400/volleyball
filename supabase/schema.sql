@@ -35,8 +35,8 @@ insert into settings (id) values (1) on conflict (id) do nothing;
 alter table teams add column if not exists manual_rank integer;
 alter table matches add column if not exists slot text
   check (slot in ('R1-1', 'R1-2', 'QF1', 'QF2', 'QF3', 'QF4', 'SF1', 'SF2', 'F'));
-alter table settings add column if not exists schedule_start text not null default '11:00';
-alter table settings add column if not exists slot_minutes integer not null default 12;
+alter table settings add column if not exists schedule_start text not null default '10:45';
+alter table settings add column if not exists slot_minutes integer not null default 15;
 alter table settings add column if not exists courts integer not null default 3;
 
 -- RLS: 全員が閲覧できる共有データ。書き込みはサーバー（service role）経由のみ。

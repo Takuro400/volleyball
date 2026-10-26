@@ -12,6 +12,7 @@ import {
   inputClass,
   selectClass,
 } from "@/components/ui";
+import LiveBoard from "@/components/LiveBoard";
 import LeagueGenerator from "@/components/admin/LeagueGenerator";
 import MatchEditor from "@/components/admin/MatchEditor";
 import { SLOT_LABEL } from "@/lib/bracket";
@@ -228,6 +229,12 @@ export default function SchedulePage() {
 
   return (
     <div className="space-y-6">
+      <LiveBoard
+        matches={matches}
+        teams={teams}
+        slotMinutes={settingsState.data?.slot_minutes ?? DEFAULT_SCHEDULE.slotMinutes}
+      />
+
       <section>
         <SectionTitle>次の試合を確認</SectionTitle>
         <select
