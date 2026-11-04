@@ -119,6 +119,10 @@ async function fetchSettings(): Promise<Settings> {
     schedule_start: s.schedule_start ?? DEFAULT_SCHEDULE.startTime,
     slot_minutes: s.slot_minutes ?? DEFAULT_SCHEDULE.slotMinutes,
     courts: s.courts ?? DEFAULT_SCHEDULE.courts,
+    // 追加列が無いときは、いたずら登録を防ぐため「フォームで受け付ける(アプリ内は閉じる)」側にする
+    entry_mode: s.entry_mode === "app" ? "app" : "form",
+    form_team_url: s.form_team_url ?? "",
+    form_individual_url: s.form_individual_url ?? "",
   };
 }
 

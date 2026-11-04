@@ -85,6 +85,9 @@ export type Match = {
   created_at: string;
 };
 
+// エントリーの受付方法: form=Googleフォームで受け付ける（アプリ内のフォームは閉じる） / app=アプリ内のフォームで受け付ける
+export type EntryMode = "form" | "app";
+
 export type Settings = {
   id: number;
   rules: string;
@@ -92,6 +95,9 @@ export type Settings = {
   schedule_start: string;
   slot_minutes: number;
   courts: number;
+  entry_mode: EntryMode;
+  form_team_url: string;
+  form_individual_url: string;
 };
 
 // リーグ戦スケジュール自動生成の初期値

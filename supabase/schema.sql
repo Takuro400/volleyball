@@ -56,6 +56,13 @@ create table if not exists individuals (
 -- 個人の名前などは公開しない（閲覧ポリシーを作らない。読み書きはサーバーのみ）
 alter table individuals enable row level security;
 
+-- Googleフォームでのエントリー受付用の追加
+-- （既存のデータベースには supabase/migrations/2026-11-form-entry.sql だけを実行すればOK）
+alter table settings add column if not exists entry_mode text not null default 'form'
+  check (entry_mode in ('form', 'app'));
+alter table settings add column if not exists form_team_url text not null default '';
+alter table settings add column if not exists form_individual_url text not null default '';
+
 -- RLS: 全員が閲覧できる共有データ。書き込みはサーバー（service role）経由のみ。
 alter table teams enable row level security;
 alter table matches enable row level security;

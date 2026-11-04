@@ -15,7 +15,8 @@ import {
 } from "@/components/ui";
 import IndividualEntryForm from "@/components/IndividualEntryForm";
 import IndividualsAdmin from "@/components/admin/IndividualsAdmin";
-import { ApiError, postJson, useIndividualCount, useTeams } from "@/lib/hooks";
+import FormEntryAdmin from "@/components/admin/FormEntryAdmin";
+import { ApiError, postJson, useIndividualCount, useSettings, useTeams } from "@/lib/hooks";
 import { BLOCKS, INDIVIDUAL_LIMIT, TEAM_ENTRY_LIMIT, type Team } from "@/lib/types";
 
 type MemberDraft = { name: string };
@@ -350,6 +351,10 @@ export default function EntryPage() {
   const { data: teams, error, loading, refresh } = useTeams();
   const individuals = useIndividualCount();
   const [mode, setMode] = useState<"team" | "individual">("team");
+  const settingsState = useSettings();
+  const settings = settingsState.data;
+  // 受付方法: form=Googleフォームで受け付ける（アプリ内フォームは閉じる） / app=アプリ内フォームで受け付ける
+  const entryMode = settings?.entry_mode ?? "form";
 
   if (error === "unconfigured") return <SetupNotice />;
 
@@ -366,10 +371,9 @@ export default function EntryPage() {
         : "border-line bg-white text-muted hover:border-navy hover:text-ink"
     }`;
 
-  return (
-    <div className="space-y-6">
-      <section>
-        <SectionTitle>エントリー</SectionTitle>
+  // アプリ内のエントリーフォーム（受付方法が「アプリ内」のとき皆に表示。「Googleフォーム」のときは運営の手入力用）
+  const appForms = (
+    <>
         <div className="mb-2 flex gap-2">
           <button type="button" onClick={() => setMode("team")} className={tabClass(mode === "team")}>
             チームで参加
@@ -408,7 +412,105 @@ export default function EntryPage() {
         ) : (
           <IndividualEntryForm count={individuals.count} onRegistered={individuals.refresh} />
         )}
+    </>
+  );
+
+  const linkClass =
+    "flex items-center justify-between gap-3 rounded-md border border-navy bg-navy px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-navy-hover";
+  const disabledClass =
+    "flex items-center justify-between gap-3 rounded-md border border-line bg-paper px-4 py-3 text-sm font-medium text-muted";
+
+  return (
+    <div className="space-y-6">
+      <section>
+        <SectionTitle>エントリー</SectionTitle>
+        {settingsState.loading ? (
+          <EmptyState>読み込み中…</EmptyState>
+        ) : entryMode === "app" ? (
+          appForms
+        ) : (
+          <>
+            <Card className="space-y-3 p-4">
+              <p className="text-sm">
+                エントリーは <span className="font-semibold">Google フォーム</span> から受け付けています。
+                参加の仕方に合わせて、どちらかのフォームから申し込んでください。
+              </p>
+              {settings?.form_team_url ? (
+                teamsFull ? (
+                  <div className={disabledClass}>
+                    <span>チームで参加（締め切りました）</span>
+                    <span className="font-mono text-xs">
+                      {entryTeams}/{TEAM_ENTRY_LIMIT}
+                    </span>
+                  </div>
+                ) : (
+                  <a href={settings.form_team_url} target="_blank" rel="noopener noreferrer" className={linkClass}>
+                    <span>
+                      チームで参加するフォーム
+                      <span className="block text-xs font-normal text-white/70">
+                        チームを作って、メンバー全員を登録
+                      </span>
+                    </span>
+                    <span className="shrink-0 font-mono text-xs text-white/70">
+                      {loading ? "–" : entryTeams}/{TEAM_ENTRY_LIMIT} ↗
+                    </span>
+                  </a>
+                )
+              ) : (
+                <div className={disabledClass}>チームで参加するフォーム（準備中）</div>
+              )}
+              {settings?.form_individual_url ? (
+                individuals.count !== null && individuals.count >= INDIVIDUAL_LIMIT ? (
+                  <div className={disabledClass}>
+                    <span>当日チーム分けで参加（締め切りました）</span>
+                    <span className="font-mono text-xs">
+                      {individuals.count}/{INDIVIDUAL_LIMIT}人
+                    </span>
+                  </div>
+                ) : (
+                  <a
+                    href={settings.form_individual_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={linkClass}
+                  >
+                    <span>
+                      当日チーム分けで参加するフォーム
+                      <span className="block text-xs font-normal text-white/70">
+                        1〜3人で申し込み。当日、運営がチームを編成
+                      </span>
+                    </span>
+                    <span className="shrink-0 font-mono text-xs text-white/70">
+                      {individuals.count ?? "–"}/{INDIVIDUAL_LIMIT}人 ↗
+                    </span>
+                  </a>
+                )
+              ) : (
+                <div className={disabledClass}>当日チーム分けで参加するフォーム（準備中）</div>
+              )}
+              <p className="text-xs text-muted">
+                申し込み内容は、スプレッドシートからアプリに反映されます（反映まで少し時間がかかることがあります）。
+              </p>
+            </Card>
+            {admin && (
+              <details className="mt-3 rounded-lg border border-amber bg-amber/10 p-3">
+                <summary className="cursor-pointer text-sm font-semibold">
+                  <AdminBadge /> 運営用: アプリ内のフォームで手入力する（当日の受付など）
+                </summary>
+                <div className="mt-3">{appForms}</div>
+              </details>
+            )}
+          </>
+        )}
       </section>
+
+      {admin && settings && (
+        <FormEntryAdmin
+          key={`${settings.entry_mode}|${settings.form_team_url}|${settings.form_individual_url}`}
+          settings={settings}
+          onChanged={settingsState.refresh}
+        />
+      )}
 
       {admin && <AdminPanel onChanged={refresh} />}
       {admin && <IndividualsAdmin teams={teams ?? []} onChanged={refresh} />}
